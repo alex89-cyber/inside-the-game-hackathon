@@ -135,13 +135,26 @@ class MatchEngine:
         return self.rng.choice(pool)
 
     # ------------------------------------------------------------- lifecycle
+    @staticmethod
+    def _team_meta(team: Team) -> dict:
+        return {
+            "id": team.id,
+            "name": team.name,
+            "short_name": team.short_name,
+            "colors": list(team.colors),
+            "formation": team.formation,
+            "players": [
+                {"id": p.id, "name": p.name, "number": p.number, "position": p.position} for p in team.players
+            ],
+        }
+
     def run(self) -> list[Event]:
         self._emit(
             "match_start",
             self.home,
             metrics={
-                "home": {"id": self.home.id, "name": self.home.name, "formation": self.home.formation},
-                "away": {"id": self.away.id, "name": self.away.name, "formation": self.away.formation},
+                "home": self._team_meta(self.home),
+                "away": self._team_meta(self.away),
                 "venue": self.cfg.venue,
                 "kickoff_utc": self.cfg.kickoff_utc,
                 "weather": self.rng.choice(["clear", "light rain", "overcast", "windy"]),
@@ -288,10 +301,13 @@ class MatchEngine:
             x, y = self._abs(self.ax, self.ay)
             self._emit("throw_in", defending, new_carrier, x=x, y=y)
         else:
+            # Most loose passes are simply recovered; a clean read of the
+            # pass that cuts it out is logged as an interception.
             interceptor = self._pick_defender(end_ax)
             ix, iy = self._abs(end_ax, end_ay)
-            self._emit("interception", defending, interceptor, x=ix, y=iy, related_player_id=p.id)
-            self._turnover(defending, interceptor, "interception", end_ax, end_ay)
+            kind = "interception" if self.rng.random() < 0.3 else "ball_recovery"
+            self._emit(kind, defending, interceptor, x=ix, y=iy, related_player_id=p.id)
+            self._turnover(defending, interceptor, kind, end_ax, end_ay)
 
     def _carry(self, under_pressure: bool) -> None:
         team, p = self.attacking, self.carrier

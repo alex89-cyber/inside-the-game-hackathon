@@ -9,6 +9,7 @@ A synthetic match streams live. A team of AI agents turns the events into stats,
 ## Status
 
 - [x] Synthetic match simulator and open event dataset
+- [x] Live match state and explainable moment detection
 - [ ] Stats + tactics agents with shared match state
 - [ ] Narrator, personalizer/translator and overlay agents
 - [ ] Web app (live pitch, overlay feed, analyst/fan modes)
@@ -32,7 +33,7 @@ Clubs: `NBR` Northbridge Rovers, `ASH` Ashford Athletic, `KES` Kestrel City, `HB
 | --- | --- |
 | `t` | Elapsed playing seconds since kick-off, monotonic across halves |
 | `period`, `minute`, `second` | Match clock (second half starts at 45:00, stoppage time keeps counting) |
-| `type` | `match_start`, `kickoff`, `pass`, `carry`, `sprint`, `take_on`, `pressure`, `tackle`, `interception`, `possession_change`, `shot`, `save`, `goal`, `foul`, `card`, `free_kick`, `corner`, `throw_in`, `goal_kick`, `period_end`, `match_end` |
+| `type` | `match_start`, `kickoff`, `pass`, `carry`, `sprint`, `take_on`, `pressure`, `tackle`, `interception`, `ball_recovery`, `possession_change`, `shot`, `save`, `goal`, `foul`, `card`, `free_kick`, `corner`, `throw_in`, `goal_kick`, `period_end`, `match_end` |
 | `team_id`, `player_id`, `related_player_id` | Who acted, and the receiver / opponent involved |
 | `x`, `y`, `end_x`, `end_y` | Metres on a 105 x 68 pitch. Home always attacks towards x = 105 |
 | `outcome` | e.g. `complete`/`incomplete`, `goal`/`saved`/`blocked`/`off_target`, `won`/`foul` |
@@ -48,6 +49,31 @@ Metrics by event type:
 - **match_start**: teams, formations, venue, weather, seed
 
 Sample matches live in `data/`. Typical output per match: ~1,100 passes at 75-82% completion, 20-30 shots, 2-5 total xG.
+
+## Live match intelligence
+
+`insights/` turns the event stream into shared match state and explainable moments, one event at a time, so it works the same live and post-match.
+
+- **`MatchState`** keeps team and player aggregates: possession (by time on the ball), pass accuracy, progressive passes, shots, xG, PPDA, pressures, top speed, sprints, and a rolling five-minute window with xG, field tilt and turnover rate.
+- **`MomentDetector`** flags what is worth talking about and attaches the numbers that explain it:
+
+| Moment | Fires when | Evidence in `why` |
+| --- | --- | --- |
+| `goal` | Every goal | xG, shot speed, game state (opener, equaliser, go-ahead...), against-the-odds flag |
+| `big_chance`, `key_save` | Shot or save with xG of 0.25 or more | xG, outcome, distance |
+| `momentum_shift` | A team's five-minute field tilt jumps to 70% or more | Tilt before and after, recent xG |
+| `pressing_spell` | 18 or more pressures in five minutes | Pressures, turnovers won, PPDA |
+| `control` / `chaos` | 10-pass chains vs four or more possession changes per minute | Sequence length, possession share, change rate |
+| `line_breaker` | Completed line-breaking pass with difficulty of 0.7 or more | Difficulty, success probability, receiver |
+| `speed_tag` | Sprint of 34 km/h or more, shot of 110 km/h or more | Speed and threshold |
+| `milestone`, `card` | 50/75 passes, brace, hat-trick, cards | Counts, accuracy |
+
+```python
+from insights import analyze
+for event, moments, state in analyze(events):
+    for m in moments:
+        print(m.minute, m.type, m.player_name, m.why)
+```
 
 ## Tests
 
