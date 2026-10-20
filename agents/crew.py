@@ -50,7 +50,7 @@ Reply as JSON: {"title": str, "summary": str (60-90 words, mention xG and posses
 PERSONALIZER_PROMPT = """You are the Personalizer. Rewrite the insight for one viewer.
 Profiles: "analyst" = dense, numeric, tactical vocabulary; "casual" = one or two short, warm sentences, at most one number; "kids" = simple, playful, no jargon; "player_focus" = centre the viewer's favourite player.
 Write in the viewer's language (ISO code in profile.language) with natural football vocabulary for that market. If the moment involves the viewer's favourite club or player, make that connection explicit.
-Use only facts in the input. Reply as JSON: {"text": str, "language": str}"""
+Use only facts in the input. Reply as JSON: {"title": str (max 8 words, in the viewer's language), "text": str (do not repeat the title), "language": str}"""
 
 
 @dataclass
@@ -240,7 +240,7 @@ class Crew:
             "theme": insight.get("tactical_theme"),
             "team_id": moment["team_id"],
             "colors": colors,
-            "title": insight.get("headline"),
+            "title": item.get("title") or insight.get("headline"),
             "body": item.get("text"),
             "player_tag": moment.get("player_name"),
             "stat_chips": insight.get("evidence", [])[:3] if prof.mode in ("analyst", "player_focus") else [],

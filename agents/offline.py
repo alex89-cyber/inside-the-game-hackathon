@@ -123,18 +123,34 @@ def _personalize(p: dict[str, Any]) -> dict[str, Any]:
     ins, prof, m = p["insight"], p["profile"], p["moment"]
     lang = prof.get("language", "en")
     mode = prof.get("mode", "casual")
+    title = ins["headline"]
     if lang == "es":
+        title = _SPANISH_TITLES.get(m["type"], ins["headline"]).format(who=m.get("player_name") or p.get("team_name", m["team_id"]), team=p.get("team_name", m["team_id"]))
         text = _spanish(m, p.get("team_name", m["team_id"]), mode)
     elif mode == "analyst":
-        evidence = ", ".join(f"{e['label']}: {e['value']}" for e in ins.get("evidence", []))
-        text = f"{ins['headline']}. {ins['explanation']} [{evidence}]"
+        text = ins["explanation"]
     elif mode == "kids":
-        text = f"{ins['headline']}! " + _first_sentence(ins["explanation"])
+        text = _first_sentence(ins["explanation"]).rstrip(".") + "!"
     else:
-        text = f"{ins['headline']}. " + _first_sentence(ins["explanation"])
+        text = _first_sentence(ins["explanation"])
     if prof.get("favorite_player") and m.get("player_id") == prof["favorite_player"]:
         text = "⭐ " + text
-    return {"text": text, "language": lang if lang in ("en", "es") else "en"}
+    return {"title": title, "text": text, "language": lang if lang in ("en", "es") else "en"}
+
+
+_SPANISH_TITLES = {
+    "goal": "¡Gol de {who}!",
+    "big_chance": "Ocasión clarísima de {team}",
+    "key_save": "Paradón de {who}",
+    "momentum_shift": "{team} toma el control",
+    "pressing_spell": "{team} presiona arriba",
+    "control": "{team} duerme el partido",
+    "chaos": "Partido roto",
+    "line_breaker": "{who} rompe líneas",
+    "speed_tag": "{who} a toda velocidad",
+    "milestone": "Hito para {who}",
+    "card": "Tarjeta para {who}",
+}
 
 
 def _spanish(m: dict[str, Any], team: str, mode: str) -> str:

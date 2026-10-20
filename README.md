@@ -11,7 +11,7 @@ A synthetic match streams live. A team of AI agents turns the events into stats,
 - [x] Synthetic match simulator and open event dataset
 - [x] Live match state and explainable moment detection
 - [x] Multi-agent crew: explainer, narrator, personalizer, director (offline mode + Foundry model)
-- [ ] Web app (live pitch, overlay feed, analyst/fan modes)
+- [x] Web app (live pitch, overlay cues, analyst/fan/kids/player modes, 8 languages)
 - [ ] Azure deployment (Microsoft Foundry, Container Apps)
 
 ## Synthetic match simulator
@@ -94,6 +94,16 @@ python -m agents data/sample_match_NBR_ASH.jsonl -o out/board.json   # full blac
 ```
 
 Model: set `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_API_KEY` and `AZURE_OPENAI_DEPLOYMENT` for a model deployed in Microsoft Foundry. Without them (or with `INSIGHTS_OFFLINE=1`) the crew runs on offline templates in English and Spanish.
+
+## Second-screen web app
+
+`app/` is a FastAPI server that simulates a match, runs it through the crew for one viewer and streams everything to the browser over Server-Sent Events (`event`, `state`, `cue`, `line`, `recap`, `trace`). The page shows an animated pitch with overlay cues, live stats and field tilt, a personalised "For you" feed with a *Why it matters* drawer, commentary, recaps, and an *Agents* tab that shows every handoff.
+
+```bash
+pip install -r requirements.txt
+uvicorn app.server:app --reload    # open http://localhost:8000
+docker build -t second-screen . && docker run -p 8000:8000 second-screen
+```
 
 ## Tests
 
