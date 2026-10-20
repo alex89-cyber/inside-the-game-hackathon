@@ -152,6 +152,7 @@ From Azure Cloud Shell (Bash), in a clone of this repo:
 ```bash
 az provider register -n Microsoft.App --wait
 az provider register -n Microsoft.OperationalInsights --wait
+az provider register -n Microsoft.ContainerRegistry --wait
 read -s -p "Azure OpenAI key: " AOAI_KEY; echo
 
 az containerapp up -n itg-second-screen -g <resource-group> -l <region> \
