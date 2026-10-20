@@ -93,11 +93,15 @@ python -m agents data/sample_match_NBR_ASH.jsonl --live --speed 30   # watch cue
 python -m agents data/sample_match_NBR_ASH.jsonl -o out/board.json   # full blackboard + trace
 ```
 
-Model: set `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_API_KEY` and `AZURE_OPENAI_DEPLOYMENT` for a model deployed in Microsoft Foundry. Without them (or with `INSIGHTS_OFFLINE=1`) the crew runs on offline templates in English and Spanish.
+Model: set `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_API_KEY` and `AZURE_OPENAI_DEPLOYMENT` for a model deployed in Microsoft Foundry (we run `gpt-4.1-mini`, Global Standard). Without them (or with `INSIGHTS_OFFLINE=1`) the crew runs on offline templates in English and Spanish.
+
+The crew is split in two so it can run live: `observe()` is the deterministic Analyst (state and moments, microseconds per event) and `react()` runs the LLM agents on what it found. Narrator and personalizers work on the same insight in parallel, so a moment costs two model round trips whatever the number of viewers.
+
+Measured on the sample match with `gpt-4.1-mini` and three viewer profiles: 165 model calls, about 105K tokens for the full 90 minutes, no fallbacks, and every invented number caught by the grounding check was fixed on the retry. In the web app at the default speed, overlay cues land a median 4.5 s (p90 5.5 s) after the moment while the pitch keeps playing.
 
 ## Second-screen web app
 
-`app/` is a FastAPI server that simulates a match, runs it through the crew for one viewer and streams everything to the browser over Server-Sent Events (`event`, `state`, `cue`, `line`, `recap`, `trace`). The page shows an animated pitch with overlay cues, live stats and field tilt, a personalised "For you" feed with a *Why it matters* drawer, commentary, recaps, and an *Agents* tab that shows every handoff.
+`app/` is a FastAPI server that simulates a match, runs it through the crew for one viewer (the Analyst inline, the LLM agents in a background queue that works on up to three moments at once, so the pitch never waits for the model) and streams everything to the browser over Server-Sent Events (`event`, `state`, `cue`, `line`, `recap`, `trace`). The page shows an animated pitch with overlay cues, live stats and field tilt, a personalised "For you" feed with a *Why it matters* drawer, commentary, recaps, and an *Agents* tab that shows every handoff.
 
 ```bash
 pip install -r requirements.txt

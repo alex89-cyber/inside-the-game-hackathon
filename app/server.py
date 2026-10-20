@@ -1,7 +1,10 @@
 """Live second-screen server.
 
 Simulates a match, runs it through the agent crew for one viewer profile
-and streams everything to the browser as Server-Sent Events:
+and streams everything to the browser as Server-Sent Events. The pitch and
+stats never wait for the model: the Analyst runs inline, and the LLM agents
+work through their queue in the background, so their output lands a few
+seconds after the moment, the way a real broadcast graphic would.
 
 - `event`: raw on-ball events for the animated pitch
 - `state`: the shared match snapshot (score, stats, last five minutes)
@@ -17,7 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
@@ -29,6 +32,7 @@ from simulator import TEAMS, MatchConfig, simulate_match
 
 STATIC = Path(__file__).parent / "static"
 MODES = {"analyst", "casual", "kids", "player_focus"}
+AGENT_CONCURRENCY = 3
 PITCH_EVENTS = {"pass", "carry", "shot", "tackle", "interception", "ball_recovery", "kickoff", "corner", "throw_in", "goal_kick", "free_kick", "save", "goal"}
 
 app = FastAPI(title="Inside the Game: Synthetic Match Insights Engine")
@@ -40,9 +44,14 @@ def index() -> FileResponse:
     return FileResponse(STATIC / "index.html")
 
 
+def _model_label(client: object) -> str:
+    """The deployment name for a real model, "offline" for templates."""
+    return getattr(client, "deployment", None) or getattr(client, "name", "offline")
+
+
 @app.get("/healthz")
 def healthz() -> dict[str, str]:
-    return {"status": "ok", "model": get_client().name}
+    return {"status": "ok", "model": _model_label(get_client())}
 
 
 @app.get("/api/teams")
@@ -73,31 +82,66 @@ async def _stream(home: str, away: str, seed: int, speed: float, profile: Profil
     events = [e.to_dict() for e in simulate_match(TEAMS[home], TEAMS[away], MatchConfig(seed=seed, match_id=f"{home}-{away}-{seed}"))]
     crew = Crew(client=get_client(), profiles=[profile])
     board = crew.board
-    sent = {"line": 0, "recap": 0, "trace": 0}
-    last_state_t = -999.0
-    prev_t = events[0]["t"]
+    jobs: asyncio.Queue = asyncio.Queue()
+    cues: list[dict] = []
+    sent = {"cue": 0, "line": 0, "recap": 0, "trace": 0}
 
-    yield _sse("meta", {"match": events[0]["metrics"], "profile": profile.to_dict(), "model": crew.client.name})
-    for e in events:
-        gap = max(0.0, e["t"] - prev_t) / speed
-        prev_t = e["t"]
-        if gap:
-            await asyncio.sleep(min(gap, 4.0))
+    async def agents_worker() -> None:
+        # Moments are independent, so a burst of them is worked on together;
+        # a recap waits for every earlier moment because it reads their insights.
+        slots = asyncio.Semaphore(AGENT_CONCURRENCY)
+        running: set[asyncio.Task] = set()
 
-        cues = await asyncio.to_thread(crew.ingest, e)
+        async def work(job: dict) -> None:
+            async with slots:
+                cues.extend(await asyncio.to_thread(crew.react, job))
 
-        if e["type"] in PITCH_EVENTS:
-            yield _sse("event", _pitch_event(e))
-        if e["t"] - last_state_t >= 20 or e["type"] in ("goal", "period_end", "match_end"):
-            last_state_t = e["t"]
-            yield _sse("state", crew.state.snapshot())
-        for cue in cues:
-            yield _sse("cue", cue)
-        for kind, items in (("line", board.commentary), ("recap", board.recaps), ("trace", board.trace)):
-            for item in items[sent[kind]:]:
+        while (job := await jobs.get()) is not None:
+            if "recap" in job:
+                await asyncio.gather(*running)
+            task = asyncio.create_task(work(job))
+            running.add(task)
+            task.add_done_callback(running.discard)
+        await asyncio.gather(*running)
+
+    def flush() -> Iterator[str]:
+        for kind, items in (("cue", cues), ("line", board.commentary), ("recap", board.recaps), ("trace", board.trace)):
+            n = len(items)
+            for item in items[sent[kind]:n]:
                 yield _sse(kind, item)
-            sent[kind] = len(items)
-    yield _sse("end", {"final": crew.state.snapshot()["score"]})
+            sent[kind] = n
+
+    worker = asyncio.create_task(agents_worker())
+    try:
+        yield _sse("meta", {"match": events[0]["metrics"], "profile": profile.to_dict(), "model": _model_label(crew.client)})
+        last_state_t = -999.0
+        prev_t = events[0]["t"]
+        for e in events:
+            gap = max(0.0, e["t"] - prev_t) / speed
+            prev_t = e["t"]
+            if gap:
+                await asyncio.sleep(min(gap, 4.0))
+
+            for job in crew.observe(e):
+                jobs.put_nowait(job)
+            if e["type"] in PITCH_EVENTS:
+                yield _sse("event", _pitch_event(e))
+            if e["t"] - last_state_t >= 20 or e["type"] in ("goal", "period_end", "match_end"):
+                last_state_t = e["t"]
+                yield _sse("state", crew.state.snapshot())
+            for chunk in flush():
+                yield chunk
+        jobs.put_nowait(None)
+        while not worker.done():  # let the agents finish the last moments and the recap
+            await asyncio.sleep(0.25)
+            for chunk in flush():
+                yield chunk
+        worker.result()
+        for chunk in flush():
+            yield chunk
+        yield _sse("end", {"final": crew.state.snapshot()["score"]})
+    finally:
+        worker.cancel()
 
 
 @app.get("/api/stream")

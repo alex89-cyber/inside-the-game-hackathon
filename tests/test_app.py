@@ -1,8 +1,11 @@
+import os
 import unittest
 
 from fastapi.testclient import TestClient
 
 from app.server import app
+
+os.environ["INSIGHTS_OFFLINE"] = "1"  # tests must not spend model credit
 
 
 class AppTest(unittest.TestCase):

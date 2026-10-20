@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -43,6 +44,7 @@ class AzureOpenAIClient:
         self.retries = retries
         self.calls = 0
         self.tokens = 0
+        self._lock = threading.Lock()  # agents call in parallel
 
     def complete_json(self, system: str, payload: dict[str, Any], *, temperature: float = 0.4) -> dict[str, Any]:
         body = json.dumps(
@@ -63,8 +65,9 @@ class AzureOpenAIClient:
             try:
                 with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                     data = json.loads(resp.read())
-                self.calls += 1
-                self.tokens += data.get("usage", {}).get("total_tokens", 0)
+                with self._lock:
+                    self.calls += 1
+                    self.tokens += data.get("usage", {}).get("total_tokens", 0)
                 return json.loads(data["choices"][0]["message"]["content"])
             except urllib.error.HTTPError as exc:
                 last = exc
