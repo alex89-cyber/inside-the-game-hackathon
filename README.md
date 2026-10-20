@@ -10,8 +10,7 @@ A synthetic match streams live. A team of AI agents turns the events into stats,
 
 - [x] Synthetic match simulator and open event dataset
 - [x] Live match state and explainable moment detection
-- [ ] Stats + tactics agents with shared match state
-- [ ] Narrator, personalizer/translator and overlay agents
+- [x] Multi-agent crew: explainer, narrator, personalizer, director (offline mode + Foundry model)
 - [ ] Web app (live pitch, overlay feed, analyst/fan modes)
 - [ ] Azure deployment (Microsoft Foundry, Container Apps)
 
@@ -74,6 +73,27 @@ for event, moments, state in analyze(events):
     for m in moments:
         print(m.minute, m.type, m.player_name, m.why)
 ```
+
+## Agent crew
+
+`agents/` runs a crew of specialised agents over the live stream. They share one **blackboard**, so every handoff is a recorded entry the UI and the next agent can read.
+
+| Agent | Kind | Job |
+| --- | --- | --- |
+| Analyst | Tool (deterministic) | Owns `MatchState` and `MomentDetector`: the numbers and the detected moments |
+| Explainer | LLM | Says *why* a moment matters, citing evidence. Answers are checked for invented numbers: one retry with feedback, then a safe fallback |
+| Narrator | LLM | Live commentary lines, half-time and full-time recaps, player of the match |
+| Personalizer | LLM | Decides if a moment is worth showing to each viewer and rewrites it for their mode (`analyst`, `casual`, `kids`, `player_focus`), language, favourite club and favourite player |
+| Director | Tool (deterministic) | Turns each personalized insight into a timed overlay cue (`t_in`, `duration_s`, `layout`, colours, stat chips) |
+
+If the model is unreachable, every LLM agent falls back to grounded templates, so the broadcast never goes blank.
+
+```bash
+python -m agents data/sample_match_NBR_ASH.jsonl --live --speed 30   # watch cues per viewer
+python -m agents data/sample_match_NBR_ASH.jsonl -o out/board.json   # full blackboard + trace
+```
+
+Model: set `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_API_KEY` and `AZURE_OPENAI_DEPLOYMENT` for a model deployed in Microsoft Foundry. Without them (or with `INSIGHTS_OFFLINE=1`) the crew runs on offline templates in English and Spanish.
 
 ## Tests
 

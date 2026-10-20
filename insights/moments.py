@@ -159,7 +159,7 @@ class MomentDetector:
                 self._moment(
                     e,
                     "line_breaker",
-                    0.4 + m["difficulty"] / 3,
+                    0.3 + m["difficulty"] / 4,
                     {"difficulty": m["difficulty"], "success_probability": m.get("success_probability"), "distance_m": m["distance_m"], "receiver_id": e.get("related_player_id"), "receiver_name": self.names.get(e.get("related_player_id", ""))},
                 )
             )
