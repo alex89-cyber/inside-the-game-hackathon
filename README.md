@@ -147,16 +147,18 @@ docker build -t second-screen . && docker run -p 8000:8000 second-screen
 
 ## Deploy to Azure Container Apps
 
-From Azure Cloud Shell (Bash), in a clone of this repo:
+GitHub Actions builds the image on every push to `main` and publishes it to `ghcr.io/alex89-cyber/inside-the-game-hackathon` (see `.github/workflows/image.yml`), so the deploy only pulls it. This also works on subscriptions that cannot run ACR Tasks, such as Azure for Students.
+
+From Azure Cloud Shell (Bash):
 
 ```bash
 az provider register -n Microsoft.App --wait
 az provider register -n Microsoft.OperationalInsights --wait
-az provider register -n Microsoft.ContainerRegistry --wait
 read -s -p "Azure OpenAI key: " AOAI_KEY; echo
 
 az containerapp up -n itg-second-screen -g <resource-group> -l <region> \
-  --source . --ingress external --target-port 8000 \
+  --image ghcr.io/alex89-cyber/inside-the-game-hackathon:latest \
+  --ingress external --target-port 8000 \
   --env-vars AZURE_OPENAI_ENDPOINT=https://<resource>.openai.azure.com/ AZURE_OPENAI_DEPLOYMENT=gpt-4.1-mini
 
 az containerapp secret set -n itg-second-screen -g <resource-group> --secrets aoai-key="$AOAI_KEY"
