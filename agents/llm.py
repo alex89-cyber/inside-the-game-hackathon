@@ -94,7 +94,7 @@ class OfflineClient:
 def get_client() -> LLMClient:
     endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT")
     key = os.environ.get("AZURE_OPENAI_API_KEY")
-    deployment = os.environ.get("AZURE_OPENAI_DEPLOYMENT", "gpt-4o-mini")
+    deployment = os.environ.get("AZURE_OPENAI_DEPLOYMENT", "gpt-4.1-mini")
     if endpoint and key and os.environ.get("INSIGHTS_OFFLINE") != "1":
         return AzureOpenAIClient(endpoint, key, deployment)
     return OfflineClient()
