@@ -161,7 +161,7 @@ function onCue(c) {
   item.className = `item ${c.layout === "full_banner" ? "big" : ""}`;
   item.style.setProperty("--c1", c.colors?.[0]);
   item.dir = "auto";
-  item.innerHTML = `<div class="meta"><span>${Math.floor(c.t_in / 60)}'</span><span>${esc(teamById(c.team_id)?.short_name)}</span></div><div class="title">${esc(c.title)}</div><div>${esc(c.body)}</div>${chips ? `<details><summary>${L("why")}</summary><div class="chips">${chips}</div></details>` : ""}`;
+  item.innerHTML = `<div class="meta"><span>${c.minute}'</span><span>${esc(teamById(c.team_id)?.short_name)}</span></div><div class="title">${esc(c.title)}</div><div>${esc(c.body)}</div>${chips ? `<details><summary>${L("why")}</summary><div class="chips">${chips}</div></details>` : ""}`;
   feed.prepend(item);
 }
 

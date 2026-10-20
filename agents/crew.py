@@ -235,6 +235,7 @@ class Crew:
             "cue_id": f"{prof.id}:{moment['id']}",
             "profile": prof.id,
             "t_in": moment["t"],
+            "minute": moment["minute"],
             "duration_s": 12 if big else 7,
             "layout": "full_banner" if big else "lower_third",
             "theme": insight.get("tactical_theme"),

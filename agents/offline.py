@@ -159,7 +159,7 @@ def _spanish(m: dict[str, Any], team: str, mode: str) -> str:
     kind = m["type"]
     if kind == "goal":
         gs = GAME_STATE["es"].get(why.get("game_state"), "anota")
-        t = f"¡Gol! {who} {gs} para {team}."
+        t = f"{who} {gs} para {team}."
         return t + (f" Un remate de {why.get('xg')} xG a {why.get('shot_speed_kmh')} km/h." if mode == "analyst" else "")
     if kind == "momentum_shift":
         return f"{team} se adueña del partido: {_pct(why.get('field_tilt_last_5'))} de los pases en el último tercio en cinco minutos."
@@ -171,7 +171,7 @@ def _spanish(m: dict[str, Any], team: str, mode: str) -> str:
         return f"Partido roto: el balón cambia de dueño {why.get('possession_changes_per_min')} veces por minuto."
     if kind in ("big_chance", "key_save"):
         xg = why.get("xg", why.get("xg_faced"))
-        return f"¡Ocasionón para {team}! Valía {xg} xG." if kind == "big_chance" else f"¡Atajadón de {who}! Evitó una ocasión de {xg} xG."
+        return f"¡Ocasionón para {team}! Valía {round(xg or 0, 2)} xG." if kind == "big_chance" else f"¡Atajadón de {who}! Evitó una ocasión de {xg} xG."
     if kind == "line_breaker":
         return f"{who} rompe líneas con un pase de dificultad {why.get('difficulty')}."
     if kind == "speed_tag":
