@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -42,6 +43,7 @@ Rules: use only numbers present in the input; never invent players, teams or sta
 Reply as JSON: {"headline": str (max 10 words), "explanation": str, "evidence": [{"label": str, "value": str|number}], "tactical_theme": one of "control","chaos","pressure","momentum","finishing","individual_brilliance","discipline","set_piece"}"""
 
 NARRATOR_PROMPT = """You are the live Narrator for a football stream. Write one vivid commentary line (max 25 words) for the moment, using the explainer's insight. Use only facts in the input.
+Keep every number attached to the label it has in the input (pressures are not tackles).
 Reply as JSON: {"line": str}"""
 
 RECAP_PROMPT = """You are the Narrator writing a match recap for a studio show. Use only the snapshot, key moments and player data provided.
@@ -50,7 +52,7 @@ Reply as JSON: {"title": str, "summary": str (60-90 words, mention xG and posses
 PERSONALIZER_PROMPT = """You are the Personalizer. Rewrite the insight for one viewer.
 Profiles: "analyst" = dense, numeric, tactical vocabulary; "casual" = one or two short, warm sentences, at most one number; "kids" = simple, playful, no jargon; "player_focus" = centre the viewer's favourite player.
 Write in the viewer's language (ISO code in profile.language) with natural football vocabulary for that market. If the moment involves the viewer's favourite club or player, make that connection explicit.
-Use only facts in the input. Reply as JSON: {"title": str (max 8 words, in the viewer's language), "text": str (do not repeat the title), "language": str}"""
+Use only facts in the input and keep every number attached to its label. Reply as JSON: {"title": str (max 8 words, in the viewer's language), "text": str (do not repeat the title), "language": str}"""
 
 
 @dataclass
@@ -100,6 +102,7 @@ def _numbers(obj: Any) -> set[float]:
     elif isinstance(obj, dict):
         for k, v in obj.items():
             if k not in _BOOKKEEPING:
+                found.update(float(n) for n in _NUM.findall(str(k)))  # "last_5_min" makes 5 a fact
                 found |= _numbers(v)
     elif isinstance(obj, (list, tuple)):
         for v in obj:
@@ -129,35 +132,56 @@ class Crew:
         self.board = Blackboard()
         self.names: dict[str, str] = {}
         self._half_time_done = False
+        # Narrator and personalizers work on the same insight at once, so a
+        # moment costs two model round trips instead of 2 + one per viewer.
+        self._pool = ThreadPoolExecutor(max_workers=4 * (1 + len(self.profiles)), thread_name_prefix="crew")
 
     # ------------------------------------------------------------ pipeline
-    def ingest(self, event: dict[str, Any]) -> list[dict[str, Any]]:
-        """Run one event through the crew. Returns the overlay cues it produced."""
+    def observe(self, event: dict[str, Any]) -> list[dict[str, Any]]:
+        """Fast, deterministic half of the pipeline (Analyst only).
+
+        Updates the match state and returns the jobs the LLM agents should
+        work on, each with the snapshot taken at that instant, so `react` can
+        run later (or on another thread) and still describe the right moment.
+        """
         self.state.ingest(event)
         if event["type"] == "match_start":
             for side in ("home", "away"):
                 for p in event["metrics"][side]["players"]:
                     self.names[p["id"]] = p["name"]
-        moments = self.detector.process(event)
-        cues: list[dict[str, Any]] = []
-        for m in moments:
+        jobs: list[dict[str, Any]] = []
+        for m in self.detector.process(event):
             md = m.to_dict()
             self.board.moments.append(md)
             self.board.log("analyst", "moment", moment_id=m.id, type=m.type, importance=m.importance)
-            if m.importance < EXPLAIN_THRESHOLD:
-                continue
-            insight = self.explain(md)
-            self.narrate(md, insight)
-            for prof in self.profiles:
-                item = self.personalize(md, insight, prof)
-                if item:
-                    cues.append(self.direct(md, insight, item, prof))
+            if m.importance >= EXPLAIN_THRESHOLD:
+                jobs.append({"moment": md, "snapshot": self.state.snapshot()})
+        phase = None
         if event["type"] == "period_end" and event["metrics"].get("period") == 1 and not self._half_time_done:
             self._half_time_done = True
-            self.recap("half_time")
-        if event["type"] == "match_end":
-            self.recap("full_time")
+            phase = "half_time"
+        elif event["type"] == "match_end":
+            phase = "full_time"
+        if phase:
+            jobs.append({"recap": phase, "snapshot": self.state.snapshot(), "potm": self._player_of_the_match()})
+        return jobs
+
+    def react(self, job: dict[str, Any]) -> list[dict[str, Any]]:
+        """Slow half: run the LLM agents on one job. Returns overlay cues."""
+        if "recap" in job:
+            self.recap(job["recap"], job["snapshot"], job["potm"])
+            return []
+        md = job["moment"]
+        insight = self.explain(md, job["snapshot"])
+        narration = self._pool.submit(self.narrate, md, insight)
+        items = [self._pool.submit(self.personalize, md, insight, prof) for prof in self.profiles]
+        cues = [self.direct(md, insight, f.result(), prof) for f, prof in zip(items, self.profiles) if f.result()]
+        narration.result()
         return cues
+
+    def ingest(self, event: dict[str, Any]) -> list[dict[str, Any]]:
+        """Run one event through the whole crew. Returns the overlay cues it produced."""
+        return [cue for job in self.observe(event) for cue in self.react(job)]
 
     def run(self, events: list[dict[str, Any]]) -> Blackboard:
         for e in events:
@@ -176,8 +200,8 @@ class Crew:
             self.board.log(agent, "fallback", reason=str(exc)[:200])
             return offline_respond(payload)
 
-    def explain(self, moment: dict[str, Any]) -> dict[str, Any]:
-        snap = self.state.snapshot()
+    def explain(self, moment: dict[str, Any], snap: dict[str, Any] | None = None) -> dict[str, Any]:
+        snap = snap or self.state.snapshot()
         payload = {
             "task": "explain",
             "moment": moment,
@@ -250,14 +274,14 @@ class Crew:
         self.board.overlays.setdefault(prof.id, []).append(cue)
         return cue
 
-    def recap(self, phase: str) -> dict[str, Any]:
-        snap = self.state.snapshot()
+    def recap(self, phase: str, snap: dict[str, Any] | None = None, potm: dict[str, Any] | None = None) -> dict[str, Any]:
+        snap = snap or self.state.snapshot()
         key = sorted(
             (self.board.insights[m["id"]] | {"minute": m["minute"], "importance": m["importance"]} for m in self.board.moments if m["id"] in self.board.insights),
             key=lambda i: i["importance"],
             reverse=True,
         )[:6]
-        potm = self._player_of_the_match()
+        potm = potm or self._player_of_the_match()
         payload = {"task": "recap", "phase": phase, "snapshot": snap, "key_moments": key, "player_of_the_match": potm}
         out = self._call("narrator", RECAP_PROMPT, payload)
         out["phase"] = phase
