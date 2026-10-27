@@ -3,6 +3,7 @@
 The submission text for the Inside the Game hackathon, kept next to the code so judges can read it with the README.
 
 - Live demo: https://itg-second-screen.blackdesert-df352da7.canadacentral.azurecontainerapps.io
+- Video: https://youtu.be/3T15UGqd_kI
 - Challenge: The Synthetic Match Insights Engine
 
 ## Second Screen: a multi-agent live match room
