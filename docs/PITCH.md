@@ -25,7 +25,6 @@ The submission text for the Inside the Game hackathon, kept next to the code so 
 - Microsoft Foundry / Azure OpenAI: gpt-4.1-mini, Global Standard, powering the Explainer, Narrator and Personalizer agents
 - Azure Container Apps: hosts the live web app, with the model key stored as a Container Apps secret
 - GitHub Actions: CI on every push, plus a container image build published to GHCR
-- GitHub Copilot: code review on the pull requests in this repository
 
 **Why it is deployable.** The agents run in the background while the pitch keeps playing; overlay cues land a median 4.5 s after the moment. If the model is unreachable, every agent falls back to grounded templates, so the screen never goes blank. One full match with three viewer profiles cost about 105K tokens. An Agents tab shows every handoff, so producers can audit where each insight came from.
 
